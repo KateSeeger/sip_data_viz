@@ -1,0 +1,435 @@
+---
+title: "Mapping_CrossNetwork_CUPNEx"
+output: html_document
+date: '2022-12-14'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Map 2: Tree Regeneration By Size Class
+Map 5: Regeneration Composition
+Map 6: Canopy Composition
+Map 8: Priority Invasive Composition
+Map 8b: Not done by NETN, but agreed that we'd all like a map of relative abundance of Native versus Exotic by plot.  Should be very straigtforward, two colors (one for native, one for exotic)
+
+```{r}
+library(tidyverse) 
+library(dplyr)
+library(httr)
+library(rgdal) 
+library(sf) 
+library(RColorBrewer)
+library(sp) 
+library(rgeos)
+library(leaflet)
+library(leaflet.minicharts)
+library(mapview)
+library(lubridate)
+
+
+setwd("C:/Users/kseeger/OneDrive - DOI/Desktop/GIT_RSTUDIO/SIP_NPS_CODE/Mapping/CUPN")
+
+tree_basics <- read_csv("TreeBasics_20221013.csv")
+seed_sap <- read_csv("SeedlingSapling_20221013.csv")
+#seed_sap has become only CARL plots in this script
+
+```
+
+#Wrangling Seedling/Sapling Data for Map 2. Regeneration by Size Class
+```{r}
+seed_sap <- seed_sap %>%
+dplyr::filter(grepl("CARL", Plot_Code)) %>%
+dplyr::filter(Event_Type_Name != "QA/QC")
+
+seed_sap_sum <- seed_sap %>%
+  group_by(Plot_Code) %>%
+  summarise(across(where(is.numeric), sum, na.rm = TRUE), .groups = 'drop')
+
+seed_sum <- seed_sap_sum %>%
+ dplyr::select(Plot_Code, starts_with("Seed"))
+
+
+sap_sum <- seed_sap_sum %>%
+ dplyr::select(Plot_Code, starts_with("Sap"))
+
+```
+
+#CUPN Plot Lat and Long
+```{r}
+cupn_plots <- read_csv("CUPN_PlotEvents_LatLong.csv") 
+
+cupn_plots_select <- cupn_plots %>%
+    dplyr::select(Plot_Code, Start_Date, Latitude, Longitude)
+
+cupn_plots_select$Start_Date <- dmy(cupn_plots_select$Start_Date)
+
+cupn_plots_select <- cupn_plots_select %>%
+  group_by(Plot_Code) %>%
+  slice(which.max(Start_Date))
+
+cupn_carl <- cupn_plots_select %>%
+    dplyr::filter(grepl("CARL", Plot_Code))
+
+```
+
+```{r}
+#issue with barplot disliking the merge function and having NA values
+#seed_sum <- merge(x = seed_sum, y = cupn_carl, all.y = T)
+
+seed_sum <- left_join(seed_sum, cupn_carl, by = "Plot_Code")
+seed_sum <- seed_sum %>%
+  group_by(Plot_Code) %>%
+dplyr::mutate(Sum = sum(across(Seedling_5_15_Tall:Seedling_50_137_Tall))) %>%
+  ungroup()
+
+sap_sum <- merge(x = sap_sum, y= cupn_carl, all.y = T)
+
+sap_sum  <- sap_sum  %>%
+  group_by(Plot_Code) %>%
+dplyr::mutate(Sum = sum(across(Sapling_0_1_DBH:Sapling_5_10_DBH))) %>%
+  ungroup()
+
+```
+
+#importing CARL Shapefile
+```{r}
+park_code <- "CARL"
+  # KATE, ENTER 4-LETTER PARK CODE HERE
+  
+unitBoundaryURL_CARL <- paste0("https://services1.arcgis.com/fBc8EJBxQRMcHlei/ArcGIS/rest/services/IMD_Units_Generic_areas_of_analysis_(AOAs)_-_IMD_BND_ALL_UNITS_AOA_nad_py_view/FeatureServer/0/query?where=UNITCODE+%3D+%27", park_code, "%27&objectIds=&time=&geometry=&geometryType=esriGeometryEnvelope&inSR=&spatialRel=esriSpatialRelIntersects&distance=&units=esriSRUnit_Meter&relationParam=&outFields=*&returnGeometry=true&maxAllowableOffset=&geometryPrecision=&outSR=4326&gdbVersion=&returnDistinctValues=false&returnIdsOnly=false&returnCountOnly=false&returnExtentOnly=false&orderByFields=&groupByFieldsForStatistics=&outStatistics=&returnZ=false&returnM=false&resultOffset=&resultRecordCount=&f=geojson") # save output as WGS84
+
+#paste(unitBoundaryURL)
+```
+
+```{r}
+#checking error code below
+imported_dat_carl <- tryCatch(readOGR(dsn = unitBoundaryURL_CARL, dropNULLGeometries = FALSE), error=function(e) print("Error retrieving data")) # return error message if problems still arise with downloading from web services
+
+#shiny::req(class(imported_dat)=="SpatialPolygonsDataFrame")
+imported_dat_carl <- sp::spTransform(imported_dat_carl, CRS("+proj=longlat +datum=WGS84")) # convert to WGS84
+```
+
+#Bar Plot Sum of Seedlings
+#issues with bars being same height - issue arose after changing naming of variables
+```{r}
+
+#colorPalette = RColorBrewer::brewer.pal(colorblindFriendly, GnBu)
+#changed some of the order etc
+okabe_ito <- c( "#0072B2", "#D55E00", 
+               "#CC79A7", "#000000",  '#CC6677', '#BBCC33', '#99DDFF', 
+                '#332288', '#882255', '#FFAABB', "#E69F00", "#56B4E9", "#009E73", "#F0E442")
+
+baseman_carl = leaflet(data = seed_sum) %>%
+  addTiles() %>%
+  addPolygons(data = imported_dat_carl, color = ~ "black")%>%
+  addCircleMarkers(cupn_carl$Longitude,
+                   cupn_carl$Latitude,  color = ~ "black", weight = 1, fillColor = ~"blue", fillOpacity = 1, radius = 3) %>%
+  addLabelOnlyMarkers(cupn_carl$Longitude, 
+                cupn_carl$Latitude, label =  cupn_carl$Plot_Code,
+                      labelOptions = labelOptions(noHide = T, direction = 'top', textOnly = T, style=list('color'="#ffffff", 'fontSize'="10px")))
+
+
+baseman_carl <- baseman_carl %>%
+  addMinicharts(seed_sum$Longitude, 
+                seed_sum$Latitude, 
+    chartdata = dplyr::select(seed_sum, Seedling_5_15_Tall:Seedling_50_137_Tall), 
+    col = okabe_ito,
+    showLabels = F) %>%
+    fitBounds(min(seed_sum$Longitude), min(seed_sum$Latitude), max(seed_sum$Longitude), max(seed_sum$Latitude))  %>%
+  addLabelOnlyMarkers(seed_sum$Longitude, 
+                seed_sum$Latitude, label =  seed_sum$Plot_Code,
+                      labelOptions = labelOptions(noHide = T, direction = 'top', textOnly = T, style=list('color'="#ffffff", 'fontSize'="10px")))
+
+baseman_carl
+
+
+```
+
+#Sum of Seedlings by size classes in each plot
+```{r}
+baseman_carl = leaflet(data = seed_sum) %>%
+  addTiles() %>%
+  addPolygons(data = imported_dat_carl, color = ~ "black")%>%
+  addCircleMarkers(cupn_carl$Longitude,
+                   cupn_carl$Latitude,  color = ~ "black", weight = 1, fillColor = ~"blue", fillOpacity = 1, radius = 4) %>%
+  addLabelOnlyMarkers(cupn_carl$Longitude, 
+                cupn_carl$Latitude, label =  cupn_carl$Plot_Code,
+                      labelOptions = labelOptions(noHide = T, direction = 'top', textOnly = T, style=list('color'="#ffffff", 'fontSize'="10px")))
+
+
+baseman_carl <- baseman_carl %>%
+  addMinicharts(seed_sum$Longitude, 
+                seed_sum$Latitude, 
+    chartdata =dplyr::select(seed_sum, Seedling_5_15_Tall:Seedling_50_137_Tall), 
+    type = "pie",
+    width = sqrt(seed_sum$Sum) * 5,
+    col = okabe_ito,
+    showLabels = F) %>%
+    fitBounds(min(seed_sum$Longitude), min(seed_sum$Latitude), max(seed_sum$Longitude), max(seed_sum$Latitude))  %>%
+  addLabelOnlyMarkers(seed_sum$Longitude, 
+                seed_sum$Latitude, label =  seed_sum$Plot_Code,
+                      labelOptions = labelOptions(noHide = T, direction = 'top', textOnly = T, style=list('color'="#ffffff", 'fontSize'="10px")))
+
+baseman_carl
+
+## 'leaflet' objects (image above)
+
+#mapshot(baseman_carl, file = "LeafletPieNum_CARL.png")
+
+```
+
+#Sum of Sapling by size class in each plot
+```{r}
+baseman_carl = leaflet(data = sap_sum) %>%
+  addProviderTiles("Esri.WorldImagery", options = providerTileOptions(noWrap = TRUE), group="Satellite") %>%  
+  addPolygons(data = imported_dat_carl, color = ~ "black") %>%
+   addCircleMarkers(sap_sum$Longitude,
+                   sap_sum$Latitude,  color = ~ "black", weight = 1, fillColor = ~"blue", fillOpacity = 1, radius = 4)
+
+baseman_carl <- baseman_carl %>%
+  addMinicharts(sap_sum$Longitude, 
+                sap_sum$Latitude, 
+    chartdata =dplyr::select(sap_sum, Sapling_0_1_DBH:Sapling_5_10_DBH), 
+    type = "pie",
+    width = sqrt(sap_sum$Sum) * 5,
+    col = okabe_ito,
+    showLabels = F) %>%
+    fitBounds(min(sap_sum$Longitude), min(sap_sum$Latitude), max(sap_sum$Longitude), max(sap_sum$Latitude)) %>%
+  addLabelOnlyMarkers(sap_sum$Longitude, 
+                sap_sum$Latitude, label =  sap_sum$Plot_Code,
+                      labelOptions = labelOptions(noHide = T, direction = 'top', textOnly = T, style=list('color'="#ffffff", 'fontSize'="10px")))
+
+baseman_carl
+
+```
+
+#MAP 5 SEEDLING SAPLING REGENERATION COMPOSITION 
+```{r}
+#Finding the top 11 most occuring species
+top_species <- seed_sap %>%
+dplyr::mutate(Plant_Code = as.factor(Plant_Code)) %>%
+  group_by(Plant_Code) %>%
+  summarise(Observations = n()) %>%
+  arrange(desc(Observations))  %>%
+dplyr::mutate(Plant_Code = as.character(Plant_Code))
+
+top_species <- as.data.frame(top_species[top_species$Observations >20,])
+
+listspecies <- as.list(top_species[1])
+
+seed_sap_top <- seed_sap %>%
+dplyr::filter(Plant_Code %in% listspecies$Plant_Code)
+
+seed_sap_top <- seed_sap_top %>%
+  replace(is.na(.), 0)
+```
+
+#Counting occurance of top species 
+```{r}
+seed_sap_top <- seed_sap_top %>%
+ dplyr::select(Plot_Code, Plant_Code, Seedling_5_15_Tall:Sapling_5_10_DBH) %>%
+  group_by(Plot_Code, Plant_Code) %>%
+  summarize(across(where(is.numeric), ~sum(.x, na.rm = TRUE))) %>%
+  ungroup()
+
+seed_sap_top <- seed_sap_top %>%
+dplyr::mutate(Count = rowSums(across(where(is.numeric)))) %>%
+ dplyr::select(Plot_Code, Plant_Code, Count)
+
+seed_sap_top <- seed_sap_top %>%
+  pivot_wider(values_from = Count, 
+              names_from = Plant_Code)
+
+seed_sap_top <- seed_sap_top %>%
+dplyr::mutate(sum = rowSums(across(where(is.numeric)), na.rm= TRUE))
+  
+
+#seed_sap_top <- left_join(seed_sap_top, cupn_carl, by = "Plot_Code")
+
+```
+#Creating other variable for less prevalent species
+```{r}
+seed_sap_other <- seed_sap %>%
+dplyr::filter(!Plant_Code %in% listspecies$Plant_Code)
+
+seed_sap_other <- seed_sap_other %>%
+  replace(is.na(.), 0)
+
+seed_sap_other <- seed_sap_other %>%
+dplyr::mutate(SapCount = rowSums(across(Seedling_15_30_Tall:Sapling_5_10_DBH)))
+
+seed_sap_other <- seed_sap_other %>%
+  dplyr::select(Plot_Code, SapCount) %>%
+  group_by(Plot_Code) %>%
+  summarize(Other = sum(SapCount))
+  
+
+```
+
+#Calculating stem densities per hectare
+```{r}
+seed_sap_den <- seed_sap %>%
+  dplyr::mutate(
+    Seedling_Den_15_30_Tall = Seedling_15_30_Tall/0.0008,
+    Seedling_Den_30_50_Tall = Seedling_30_50_Tall/0.0008,
+    Seedling_Den_50_137_Tall = Seedling_50_137_Tall/0.0008,
+    Sapling_Den_0_1_DBH = Sapling_0_1_DBH/0.008, 
+    Sapling_Den_1_2half_DBH = Sapling_1_2half_DBH/0.008,
+    Sapling_Den_2half_5_DBH = Sapling_2half_5_DBH/0.008,
+    Sapling_Den_5_10_DBH = Sapling_5_10_DBH/0.008
+  )
+
+seed_sap_den <- seed_sap_den %>%
+ dplyr::select(Plot_Code, Plant_Code, Seedling_Den_15_30_Tall, Seedling_Den_30_50_Tall, Seedling_Den_50_137_Tall, Sapling_Den_0_1_DBH, Sapling_Den_1_2half_DBH, Sapling_Den_2half_5_DBH, Sapling_Den_5_10_DBH)%>%
+  replace(is.na(.), 0) %>%
+  group_by(Plot_Code) %>%
+  summarize(across(where(is.numeric), ~sum(.x, na.rm = TRUE))) %>%
+  ungroup()
+  
+
+seed_sap_den <- seed_sap_den %>%
+  group_by(Plot_Code) %>%
+dplyr::mutate(seed_sap_Density = sum(Seedling_Den_15_30_Tall,
+                                Seedling_Den_30_50_Tall,
+                                Seedling_Den_50_137_Tall,Sapling_Den_0_1_DBH, 
+                               Sapling_Den_1_2half_DBH,
+                               Sapling_Den_2half_5_DBH, 
+                               Sapling_Den_5_10_DBH)) %>%
+  ungroup()
+
+seed_sap_den <- seed_sap_den %>%
+ dplyr::select(Plot_Code, seed_sap_Density)
+
+seed_sap_top <- Reduce(function (...) { merge(..., all = TRUE) },  # Full join
+                           list( seed_sap_other, seed_sap_top, seed_sap_den, cupn_carl))
+
+```
+
+
+#Mapping Regeneration by Composition
+```{r}
+baseman_carl = leaflet(data = seed_sap_top) %>%
+  addProviderTiles("Esri.WorldImagery", options = providerTileOptions(noWrap = TRUE), group="Satellite") %>%
+  addPolygons(data = imported_dat_carl, color = ~ "black") %>%
+  addCircleMarkers(seed_sap_top$Longitude,
+                   seed_sap_top$Latitude,  color = ~ "black", weight = 1, fillColor = ~"blue", fillOpacity = 1, radius = 4)
+
+#SET VIEW SETS THE MIDDLE POINT OF THE MAP BUT DOES NOT NECESARRILY HELP FOR VIEWING PURPOSES
+#  setView(lng = mean(seed_sap_top$Longitude), lat = mean(seed_sap_top$Latitude), zoom = 15)
+
+baseman_carl <- baseman_carl %>%
+  addMinicharts(seed_sap_top$Longitude, 
+                seed_sap_top$Latitude, 
+    chartdata =dplyr::select(seed_sap_top, Other:SASSALB), 
+    type = "pie",
+    width = sqrt(seed_sap_top$seed_sap_Density)/6.5,
+    col = okabe_ito,
+    showLabels = F) %>%
+  addLabelOnlyMarkers(seed_sap_top$Longitude, 
+                seed_sap_top$Latitude, label =  seed_sap_top$Plot_Code,
+                      labelOptions = labelOptions(noHide = T, direction = 'top', textOnly = T, style=list('color'="#ffffff", 'fontSize'="10px"))) %>%
+      fitBounds(min(seed_sap_top$Longitude), min(seed_sap_top$Latitude), max(seed_sap_top$Longitude), max(seed_sap_top$Latitude))
+
+
+baseman_carl
+
+#mapshot(baseman_carl, file = "Leaflet_CARLMap5.png")
+
+```
+#Creating Map 6, Tree Canopy Composition
+```{r}
+# Creating Tree (BA and Density columns by plot_code)
+# Basal area in square meters = pi * (dbh^2) / 40000
+
+#NEED TO BE LIVE, ANY TYPE OF CANOPY, CARL PLOTS, NO QAQC, CREATE BASAL AREA, Status code: 1 &3
+```
+
+```{r}
+#tree_basics_count is the filtered dataset
+
+tree_basics_count <- tree_basics %>%
+dplyr::filter(Park_Code == "CARL")%>%
+  dplyr::filter(Event_Type_Name != "QA/QC") %>%
+dplyr::filter(Status_Code == 1) %>%
+  dplyr::mutate(Basal_Area_ha = ((pi * DBH^2) /40000 )/0.04)
+
+#Finding the top 11 most occuring species
+top_tree <- tree_basics_count %>%
+dplyr::mutate(Plant_Code = as.factor(Plant_Code)) %>%
+  group_by(Plant_Code) %>%
+  summarise(Observations = n()) %>%
+  arrange(desc(Observations))  %>%
+dplyr::mutate(Plant_Code = as.character(Plant_Code))
+
+top_tree <- as.data.frame(top_tree[top_tree$Observations >20,])
+
+listspecies <- as.list(top_tree[1])
+
+#tree_count is the whole dataset subsetting to the top 10 species
+
+tree_count <- tree_basics_count %>%
+dplyr::filter(Plant_Code %in% listspecies$Plant_Code)
+
+```
+
+```{r}
+tree_basics_other <- tree_basics_count %>%
+dplyr::filter(!Plant_Code %in% listspecies$Plant_Code)
+
+# tree_basics_other <- tree_basics_other %>%
+#   replace(is.na(.), 0)
+
+# tree_basics_other <- tree_basics_other %>%
+# dplyr::mutate(Count = rowSums(across(Seedling_15_30_Tall:Sapling_5_10_DBH)))
+
+tree_basics_other <- tree_basics_other %>%
+  group_by(Plot_Code) %>%
+  summarize(Other = n())
+```
+
+
+```{r}
+#count number of observations of trees for tree density
+tree_count <- tree_count %>%
+  group_by(Plot_Code, Plant_Code) %>%
+  summarize(DBH_Obs = n()) %>%
+  ungroup()
+
+tree_count <- tree_count %>%
+  pivot_wider(names_from = Plant_Code, 
+              values_from = DBH_Obs)
+
+tree_ba<- tree_basics_count %>%
+  group_by(Plot_Code) %>%
+  summarise(Sum = sum(Basal_Area_ha))
+
+tree_plot <-  Reduce(function (...) { merge(..., all = TRUE) },  # Full join
+                           list(tree_ba, tree_basics_other, tree_count, cupn_carl))
+```
+
+```{r}
+baseman_carl = leaflet(data = tree_plot) %>%
+  addProviderTiles("Esri.WorldImagery", options = providerTileOptions(noWrap = TRUE), group="Satellite") %>%
+  addPolygons(data = imported_dat_carl, color = ~ "black") %>%
+  addCircleMarkers(tree_plot$Longitude,
+                   tree_plot$Latitude,  color = ~ "black", weight = 1, fillColor = ~"blue", fillOpacity = 1, radius = 4)
+
+#SET VIEW SETS THE MIDDLE POINT OF THE MAP BUT DOES NOT NECESARRILY HELP FOR VIEWING PURPOSES
+#  setView(lng = mean(tree_plot$Longitude), lat = mean(tree_plot$Latitude), zoom = 15)
+
+baseman_carl <- baseman_carl %>%
+  addMinicharts(tree_plot$Longitude, 
+                tree_plot$Latitude, 
+    chartdata =dplyr::select(tree_plot, Other:LIRITUL), 
+    type = "pie",
+    width = sqrt(tree_plot$Sum) * 4,
+    showLabels = F) %>%
+  addLabelOnlyMarkers(tree_plot$Longitude, 
+                tree_plot$Latitude, label =  tree_plot$Plot_Code,
+                      labelOptions = labelOptions(noHide = T, direction = 'top', textOnly = T, style=list('color'="#ffffff", 'fontSize'="10px"))) %>%
+      fitBounds(min(tree_plot$Longitude), min(tree_plot$Latitude), max(tree_plot$Longitude), max(tree_plot$Latitude))
+
+baseman_carl
+```

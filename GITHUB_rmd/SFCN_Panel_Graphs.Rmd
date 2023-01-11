@@ -1,0 +1,415 @@
+---
+title: "SFCN_Panel_Graphs"
+output: html_document
+date: '2023-01-03'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, warning = FALSE}
+library(tidyr)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library(readr)
+library(RColorBrewer)
+library(knitr)
+library(base)
+library(stringr)
+library(ggthemes)
+library(gridExtra)
+
+```
+
+```{r}
+
+setwd("C:/Users/kseeger/OneDrive - DOI/Desktop/GIT_RSTUDIO/SIP_NPS_CODE/Mapping/SFCN")
+
+Plot_Locations <- read_csv("SFCNPlots_wLatLon_20221206.csv")
+# - Plot locations with latitude and longitude
+
+BISCMAN_Rich <- read_csv("SFCN_WoodyRich.csv")
+# - BISCMAN live and dead DBH, and Densities, and proportion of species 
+# Table 1
+
+BISCCHH_Rich <- read_csv("Book1.csv")
+# - number of trees live and dead and their plot min & average DBH and density
+#Table 2
+
+#-----
+#Table3 Split up
+
+BISCCHH_Species_Total <- read_csv("SFCN_sp_total.csv")
+# - Total count of unique species that are live and dead
+
+BISCCHH_Num_Live_Dead <- read_csv("SFCN_num_live_dead.csv")
+# - BISCCHH count live and dead counts per species
+
+BISCCHH_Total_SP_Rich <- read_csv("SFCN_Tot_sp_rich.csv")
+# - total count of species per plot
+
+```
+
+# Manipulating original data frames
+```{r}
+BISCCHH_Num_Live_Dead <- BISCCHH_Num_Live_Dead %>% 
+  replace(is.na(.), 0)
+ 
+BISCCHH_SP_Rich <- BISCCHH_Num_Live_Dead %>%
+  pivot_longer(cols = c(Live, Dead), 
+               names_to = "Status", 
+               values_to = "Count")
+
+BISCCHH_SP_Rich <- BISCCHH_SP_Rich %>%
+    mutate(Site = as.factor(Site), 
+           Count = as.integer(Count), 
+           Status = as.factor(Status), 
+           Species = as.factor(Species))
+
+BISCMAN_Rich <- BISCMAN_Rich %>%
+  rename(Plot_Code = Site)
+
+```
+
+```{r}
+#OKABE PALETTE
+
+Okabe_Ito <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", 
+               "#CC79A7", "#000000",  '#CC6677','#DDDDDD', '#EE6677', '#99DDFF', 
+               '#BBCC33', '#332288', '#882255', '#FFAABB')
+
+color_pallete_function <- colorRampPalette(
+  colors = Okabe_Ito, 
+  space = "Lab")
+
+num_colors <- nlevels(BISCCHH_SP_Rich$Species)
+okabepalette <- color_pallete_function(num_colors)
+okabepalette <- setNames(okabepalette, levels(BISCCHH_SP_Rich$Species))
+
+```
+
+#BISCCHH Stacked Barplots Live/Dead SP Prop
+```{r}
+b_stack <- function(Site){
+  BISCCHH_SP_Rich %>%
+  dplyr::filter(.data$Site == .env$Site) %>%
+  ggplot() +
+  aes(x = Status, y= Count, fill = Species) + 
+    geom_bar(position='stack', #position = stack uses value
+                 stat = "identity") + 
+    labs(title=paste(unique(Site)), x = "", y = "") + 
+    theme_clean() + 
+     theme(legend.text = element_text(size = 6), 
+          legend.title = element_text(size = 6), 
+          plot.title = element_text(size = 7)) 
+}
+
+b1 <- b_stack("BISCCHH001") + scale_fill_manual(values = okabepalette[unique(BISCCHH_SP_Rich$Species[BISCCHH_SP_Rich$Site=="BISCCHH001"])],
+                      drop = TRUE)
+    
+b2 <- b_stack("BISCCHH002") + scale_fill_manual(values = okabepalette[unique(BISCCHH_SP_Rich$Species[BISCCHH_SP_Rich$Site=="BISCCHH002"])],
+                      drop = TRUE) 
+b3 <- b_stack("BISCCHH003") + scale_fill_manual(values = okabepalette[unique(BISCCHH_SP_Rich$Species[BISCCHH_SP_Rich$Site=="BISCCHH003"])],
+                      drop = TRUE) 
+b4 <- b_stack("BISCCHH004") + scale_fill_manual(values = okabepalette[unique(BISCCHH_SP_Rich$Species[BISCCHH_SP_Rich$Site=="BISCCHH004"])],
+                      drop = TRUE) 
+b5 <- b_stack("BISCCHH005") + scale_fill_manual(values = okabepalette[unique(BISCCHH_SP_Rich$Species[BISCCHH_SP_Rich$Site=="BISCCHH005"])],
+                      drop = TRUE) 
+b6 <- b_stack("BISCCHH006") + scale_fill_manual(values = okabepalette[unique(BISCCHH_SP_Rich$Species[BISCCHH_SP_Rich$Site=="BISCCHH006"])],
+                      drop = TRUE) 
+b7 <- b_stack("BISCCHH007") + scale_fill_manual(values = okabepalette[unique(BISCCHH_SP_Rich$Species[BISCCHH_SP_Rich$Site=="BISCCHH007"])],
+                      drop = TRUE) 
+b8 <- b_stack("BISCCHH008") + scale_fill_manual(values = okabepalette[unique(BISCCHH_SP_Rich$Species[BISCCHH_SP_Rich$Site=="BISCCHH008"])],
+                      drop = TRUE) 
+
+b <- grid.arrange(arrangeGrob(b1, b2, b3, b4, ncol = 2))
+
+bb <- grid.arrange(arrangeGrob(b5, b6, b7,b8, ncol = 2))
+```
+
+#BISCHMAN LIVE/DeAD BA Proportion 
+
+```{r}
+BISCMAN_BA_Rich <- BISCMAN_Rich %>%
+  dplyr::select(Plot_Code, Status, `Avicennia germinans Basal area`, `Laguncularia racemosa Basal area`, `Rhizophora mangle     Basal area`)
+
+BISCMAN_BA_Rich <- BISCMAN_BA_Rich %>%
+  pivot_longer(cols = c(`Avicennia germinans Basal area`, `Laguncularia racemosa Basal area`, `Rhizophora mangle     Basal area`), 
+               names_to = "Species", 
+               values_to = "Basal Area")
+
+BISCMAN_BA_Rich <- BISCMAN_BA_Rich %>%
+  mutate(Species = gsub(" Basal area", replace = "", Species))
+
+BISCMAN_BA_Rich <- BISCMAN_BA_Rich %>%
+      mutate(Plot_Code = as.factor(Plot_Code),
+           Status = as.factor(Status), 
+           Species = as.factor(Species))
+  
+BISCMAN_BA_Rich
+```
+
+```{r}
+
+biscmap_palette <- c("#E69F00", "#56B4E9", "#009E73")
+
+color_pallete_function <- colorRampPalette(
+  colors = biscmap_palette, 
+  space = "Lab")
+
+num_colors <- nlevels(BISCMAN_BA_Rich$Species)
+biscmanpalette <- color_pallete_function(num_colors)
+biscmanpalette <- setNames(biscmap_palette, levels(BISCMAN_BA_Rich$Species))
+  
+
+unique(BISCMAN_BA_Rich$Species)
+bman_stack <- function(Plot_Code){
+  BISCMAN_BA_Rich %>%
+  dplyr::filter(.data$Plot_Code == .env$Plot_Code) %>%
+  ggplot() +
+  aes(x = Status, y= `Basal Area`, fill = Species) + 
+    geom_bar(position='stack', 
+                 stat = "identity") + 
+    labs(title=paste(unique(Plot_Code)), x = "", y = "") + 
+    theme_clean() + 
+     theme(legend.text = element_text(size = 6), 
+          legend.title = element_text(size = 6), 
+          plot.title = element_text(size = 7)) 
+}
+
+b1 <- bman_stack("BISCMAN001") + scale_fill_manual(values = biscmanpalette[unique(BISCMAN_BA_Rich$Species[BISCMAN_BA_Rich$Plot_Code=="BISCMAN001"])],
+                      drop = TRUE)
+b2 <- bman_stack("BISCMAN002") + scale_fill_manual(values = biscmanpalette[unique(BISCMAN_BA_Rich$Species[BISCMAN_BA_Rich$Plot_Code=="BISCMAN002"])],
+                      drop = TRUE) 
+b3 <- bman_stack("BISCMAN003") + scale_fill_manual(values = biscmanpalette[unique(BISCMAN_BA_Rich$Species[BISCMAN_BA_Rich$Plot_Code=="BISCMAN003"])],
+                      drop = TRUE) 
+b4 <- bman_stack("BISCMAN004") + scale_fill_manual(values = biscmanpalette[unique(BISCMAN_BA_Rich$Species[BISCMAN_BA_Rich$Plot_Code=="BISCMAN004"])],
+                      drop = TRUE) 
+b5 <- bman_stack("BISCMAN005") + scale_fill_manual(values = biscmanpalette[unique(BISCMAN_BA_Rich$Species[BISCMAN_BA_Rich$Plot_Code=="BISCMAN005"])],
+                      drop = TRUE) 
+b6 <- bman_stack("BISCMAN006") + scale_fill_manual(values = biscmanpalette[unique(BISCMAN_BA_Rich$Species[BISCMAN_BA_Rich$Plot_Code=="BISCMAN006"])],
+                      drop = TRUE) 
+b7 <- bman_stack("BISCMAN007") + scale_fill_manual(values = biscmanpalette[unique(BISCMAN_BA_Rich$Species[BISCMAN_BA_Rich$Plot_Code=="BISCMAN007"])],
+                      drop = TRUE) 
+b8 <- bman_stack("BISCMAN008") + scale_fill_manual(values = biscmanpalette[unique(BISCMAN_BA_Rich$Species[BISCMAN_BA_Rich$Plot_Code=="BISCMAN008"])],
+                      drop = TRUE) 
+
+b <- grid.arrange(arrangeGrob(b1, b2, b3, b4, ncol = 2))
+
+bb <- grid.arrange(arrangeGrob(b5, b6, b7,b8, ncol = 2))
+```
+
+#BISCMAN Live/Dead SP Prop
+```{r}
+BISCMAN_SP_Rich <- BISCMAN_Rich %>%
+  dplyr::select(Plot_Code, Status, `Avicennia germinans`, `Laguncularia racemosa`, `Rhizophora mangle`)
+
+BISCMAN_SP_Rich <- BISCMAN_SP_Rich %>%
+  pivot_longer(cols = c(`Avicennia germinans`, `Laguncularia racemosa`, `Rhizophora mangle`), 
+               names_to = "Species", 
+               values_to = "Percentage")
+
+BISCMAN_SP_Rich <- BISCMAN_SP_Rich %>%
+      mutate(Plot_Code = as.factor(Plot_Code),
+           Status = as.factor(Status), 
+           Species = as.factor(Species))
+  
+BISCMAN_SP_Rich
+```
+
+```{r}
+
+biscmap_palette <- c("#E69F00", "#56B4E9", "#009E73")
+
+color_pallete_function <- colorRampPalette(
+  colors = biscmap_palette, 
+  space = "Lab")
+
+num_colors <- nlevels(BISCMAN_SP_Rich$Species)
+biscmanpalette <- color_pallete_function(num_colors)
+biscmanpalette <- setNames(biscmap_palette, levels(BISCMAN_SP_Rich$Species))
+  
+unique(BISCMAN_SP_Rich$Species)
+bman_stack <- function(Plot_Code){
+  BISCMAN_SP_Rich %>%
+  dplyr::filter(.data$Plot_Code == .env$Plot_Code) %>%
+  ggplot() +
+  aes(x = Status, y= Percentage, fill = Species) + 
+    geom_bar(position='stack', 
+                 stat = "identity") + 
+    labs(title=paste(unique(Plot_Code)), x = "", y = "") + 
+    theme_clean() + 
+     theme(legend.text = element_text(size = 6), 
+          legend.title = element_text(size = 6), 
+          plot.title = element_text(size = 7)) 
+}
+
+b1 <- bman_stack("BISCMAN001") + scale_fill_manual(values = biscmanpalette[unique(BISCMAN_SP_Rich$Species[BISCMAN_SP_Rich$Plot_Code=="BISCMAN001"])],
+                      drop = TRUE)
+b2 <- bman_stack("BISCMAN002") + scale_fill_manual(values = biscmanpalette[unique(BISCMAN_SP_Rich$Species[BISCMAN_SP_Rich$Plot_Code=="BISCMAN002"])],
+                      drop = TRUE) 
+b3 <- bman_stack("BISCMAN003") + scale_fill_manual(values = biscmanpalette[unique(BISCMAN_SP_Rich$Species[BISCMAN_SP_Rich$Plot_Code=="BISCMAN003"])],
+                      drop = TRUE) 
+b4 <- bman_stack("BISCMAN004") + scale_fill_manual(values = biscmanpalette[unique(BISCMAN_SP_Rich$Species[BISCMAN_SP_Rich$Plot_Code=="BISCMAN004"])],
+                      drop = TRUE) 
+b5 <- bman_stack("BISCMAN005") + scale_fill_manual(values = biscmanpalette[unique(BISCMAN_SP_Rich$Species[BISCMAN_SP_Rich$Plot_Code=="BISCMAN005"])],
+                      drop = TRUE) 
+b6 <- bman_stack("BISCMAN006") + scale_fill_manual(values = biscmanpalette[unique(BISCMAN_SP_Rich$Species[BISCMAN_SP_Rich$Plot_Code=="BISCMAN006"])],
+                      drop = TRUE) 
+b7 <- bman_stack("BISCMAN007") + scale_fill_manual(values = biscmanpalette[unique(BISCMAN_SP_Rich$Species[BISCMAN_SP_Rich$Plot_Code=="BISCMAN007"])],
+                      drop = TRUE) 
+b8 <- bman_stack("BISCMAN008") + scale_fill_manual(values = biscmanpalette[unique(BISCMAN_SP_Rich$Species[BISCMAN_SP_Rich$Plot_Code=="BISCMAN008"])],
+                      drop = TRUE) 
+
+b <- grid.arrange(arrangeGrob(b1, b2, b3, b4, ncol = 2))
+
+bb <- grid.arrange(arrangeGrob(b5, b6, b7,b8, ncol = 2))
+```
+
+#BISCMAN PIE CHARTS, LIVE/Dead
+```{r}
+BISCMAN_Rich_Pie <- BISCMAN_Rich %>%
+  select(Plot_Code, Status, Num_Trees)
+
+BISCMAN_Splits <- split(BISCMAN_Rich, f = BISCMAN_Rich_Pie$Plot_Code)
+
+fig <- plot_ly()
+fig <- fig %>% add_pie(data = BISCMAN_Splits$BISCMAN001, labels = ~Status, 
+                     values = ~ Num_Trees, name = "", title = "BISCMAN001", 
+                     type = "pie", textinfo= '~Status + percent',
+                     marker = list(colors = colors), 
+                    domain = list(row = 0, column = 0))
+
+fig <- fig %>% add_pie(data = BISCMAN_Splits$BISCMAN002, labels = ~Status, 
+                     values = ~ Num_Trees, name = "", title = "BISCMAN002",  
+                     type = "pie",
+                     marker = list(colors = colors), 
+                    domain = list(row = 0, column = 1))
+
+fig <- fig %>% add_pie(data = BISCMAN_Splits$BISCMAN003, labels = ~Status, 
+                     values = ~ Num_Trees, name = "", title = "BISCMAN003", 
+                     type = "pie",
+                     marker = list(colors = colors), 
+                    domain = list(row = 1, column = 0))
+
+fig <-  fig %>% add_pie(data = BISCMAN_Splits$BISCMAN004, labels = ~Status, 
+                     values = ~ Num_Trees, name = "", title = "BISCMAN004", 
+                     type = "pie", textposition = "inside",
+                     marker = list(colors = colors), 
+                    domain = list(row = 1, column = 1))
+
+fig <- fig %>% layout(title ="Percentage of Live and Dead Trees per Plot", grid=list(rows=2, columns=2), legend = list(orientation = "h", xanchor = "center", x = 0.5), 
+                      xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+                      yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
+
+fig
+```
+
+```{r}
+fig <- plot_ly()
+fig <- fig %>% add_pie(data = BISCMAN_Splits$BISCMAN005, labels = ~Status, 
+                     values = ~ Num_Trees, name = "", title= "BISCMAN005",
+                     type = "pie",
+                     marker = list(colors = colors), 
+                      domain = list(row = 0, column = 0))
+
+fig <- fig %>% add_pie(data = BISCMAN_Splits$BISCMAN006, labels = ~Status, 
+                     values = ~ Num_Trees, name = "", title = "BISCMAN006",
+                     type = "pie",
+                     marker = list(colors = colors), 
+                    domain = list(row = 0, column = 1))
+
+fig <- fig %>% add_pie(data = BISCMAN_Splits$BISCMAN007, labels = ~Status, 
+                     values = ~ Num_Trees, name = "", title = "BISCMAN007",
+                     type = "pie",
+                     marker = list(colors = colors), 
+                      domain = list(row = 1, column = 0))
+
+fig <-  fig %>% add_pie(data = BISCMAN_Splits$BISCMAN008, labels = ~Status, 
+                     values = ~ Num_Trees, name = "", title = "BISCMAN008",
+                     type = "pie",
+                     marker = list(colors = colors), 
+                      domain = list(row = 1, column = 1))
+
+fig <- fig %>% layout(title = "Percentage of Live and Dead Trees per Plot", grid=list(rows=2, columns=2), legend = list(orientation = "h", xanchor = "center", x = 0.5),
+                      xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+                      yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
+
+fig
+``` 
+
+#BISCCHH PIE CHARTS LIVE/dEAD
+```{r}
+BISCCHH_Rich_Pie <- BISCCHH_Rich %>%
+  dplyr::select(Site, status, Num_Trees)
+
+BISCCHH_Splits <- split(BISCCHH_Rich, f = BISCCHH_Rich_Pie$Site)
+
+
+fig <- plot_ly()
+fig <- fig %>% add_pie(data = BISCCHH_Splits$BISCCHH001, labels = ~status, 
+                     values = ~ Num_Trees, name = "", title = "BISCCHH001", 
+                     type = "pie", textinfo= '~Status + percent',
+                     marker = list(colors = colors), 
+                    domain = list(row = 0, column = 0))
+
+fig <- fig %>% add_pie(data = BISCCHH_Splits$BISCCHH002, labels = ~status, 
+                     values = ~ Num_Trees, name = "", title = "BISCCHH002",  
+                     type = "pie", textposition = "inside",
+                     marker = list(colors = colors), 
+                    domain = list(row = 0, column = 1))
+
+fig <- fig %>% add_pie(data = BISCCHH_Splits$BISCCHH003, labels = ~status, 
+                     values = ~ Num_Trees, name = "", title = "BISCCHH003", 
+                     type = "pie", textposition = "inside",
+                     marker = list(colors = colors), 
+                    domain = list(row = 1, column = 0))
+
+fig <-  fig %>% add_pie(data = BISCCHH_Splits$BISCCHH004, labels = ~status, 
+                     values = ~ Num_Trees, name = "", title = "BISCCHH004", 
+                     type = "pie", textposition = "inside",
+                     marker = list(colors = colors), 
+                    domain = list(row = 1, column = 1))
+
+fig <- fig %>% layout(title ="Percentage of Live and Dead Trees per Plot", grid=list(rows=2, columns=2), legend = list(orientation = "h", xanchor = "center", x = 0.5), 
+                      xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+                      yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
+
+fig
+```
+
+```{r}
+fig <- plot_ly()
+fig <- fig %>% add_pie(data = BISCCHH_Splits$BISCCHH005, labels = ~status, 
+                     values = ~ Num_Trees, name = "", title = "BISCCHH005",
+                     type = "pie",
+                     marker = list(colors = colors), 
+                      domain = list(row = 0, column = 0))
+
+fig <- fig %>% add_pie(data = BISCCHH_Splits$BISCCHH006, labels = ~status, 
+                     values = ~ Num_Trees, name = "", title = "BISCCHH006", 
+                     type = "pie",
+                     marker = list(colors = colors), 
+                    domain = list(row = 0, column = 1))
+
+fig <- fig %>% add_pie(data = BISCCHH_Splits$BISCCHH007, labels = ~status, 
+                     values = ~ Num_Trees, name = "", title = "BISCCHH007",
+                     type = "pie",
+                     marker = list(colors = colors), 
+                      domain = list(row = 1, column = 0))
+
+fig <-  fig %>% add_pie(data = BISCCHH_Splits$BISCCHH008, labels = ~status, 
+                     values = ~ Num_Trees, name = "", title = "BISCCHH008",
+                     type = "pie",
+                     marker = list(colors = colors), 
+                      domain = list(row = 1, column = 1))
+
+fig <- fig %>% layout(title = "Percentage of Live and Dead Trees per Plot", grid=list(rows=2, columns=2), legend = list(orientation = "h", xanchor = "center", x = 0.5),
+                      xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+                      yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
+
+fig
+```

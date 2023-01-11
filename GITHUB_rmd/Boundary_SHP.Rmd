@@ -1,0 +1,274 @@
+---
+title: "Boundary_SHP"
+output: html_document
+date: '2022-11-29'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse) 
+library(dplyr)
+library(httr)
+library(rgdal) 
+library(sf) 
+library(sp) 
+library(rgeos)
+library(leaflet)
+#install.packages("leaflet.minicharts")
+library(leaflet.minicharts)
+library(geojson)
+library(geojsonio)
+
+setwd("C:/Users/kseeger/OneDrive - DOI/Desktop/GIT_RSTUDIO/SIP_NPS_CODE/Mapping/CUPN")
+```
+
+```{r}
+
+#Getting CUPN_UTM  
+
+CUPN_UTM <- read_csv("CUPN_UTM.csv")
+
+#Create a CSV with all of the plot names and network codes and LAT AND LONG FROM ELLEN "VEG DATA_CLEANED" MISSING VALUES 
+CUPN_Lat_Long <- read_csv("CUPN_PlotEvents_LatLong.csv")
+
+#unique(CUPN_Lat_Long$Latitude)
+#389
+#unique(CUPN_Lat_Long$Plot)
+#389
+
+CUPN_Lat_Long <- CUPN_Lat_Long %>%
+  dplyr::select(Plot_Code, Latitude, Longitude)
+
+CUPN_UTMm <- CUPN_UTM %>%
+  dplyr::select(Network_Code, Park_Code, Plot_Code)
+
+CUPN_Plots <- full_join(CUPN_Lat_Long, CUPN_UTMm, by = "Plot_Code") 
+
+CUPN_Plots <- CUPN_Plots %>%
+  dplyr::select(Network_Code, Park_Code, Plot_Code, Latitude, Longitude)
+
+CUPN_Plots <- unique(CUPN_Plots)
+
+unique(CUPN_Plots)
+#CUPN plot is used by Boundary_SHP 
+#might need to automate this process
+#write.csv(CUPN_Plots, "CUPN_Plots.csv", row.names= FALSE)
+
+```
+
+```{r}
+setwd("C:/Users/kseeger/OneDrive - DOI/Desktop/GIT_RSTUDIO/FlexdashboardPractice/Mapping/CUPN")
+
+CUPN_Plots <- read_csv("CUPN_Plots.csv")
+CUPN_Tree_FODO <- read_csv("CUPN_Tree_FODO_df.csv")
+Table_B2 <- read_csv("woody_table_b2.csv")
+Table_T3 <- read_csv("Table_T3.csv")
+```
+
+```{r}
+
+CUPN_Plots %>%
+  group_by(Plot_Code) %>%
+  summarise(Dup = n()) %>%
+  filter(Dup ==2)
+
+CUPN_Lat_Long %>%
+  group_by(Plot_Code) %>%
+  summarise(Dup = n()) %>%
+  filter(Dup ==2 | Dup == 3)
+
+
+```
+
+***FODO PARK ***
+
+```{r}
+#create a funciton that will input plot codes and call to arcgis repo for unitboundaries
+#or figure out whytf the download.file does not work on this computer
+
+# Get park unit boundary data ----
+
+park_code <- "FODO"
+  # KATE, ENTER 4-LETTER PARK CODE HERE
+  
+unitBoundaryURL_FODO <- paste0("https://services1.arcgis.com/fBc8EJBxQRMcHlei/ArcGIS/rest/services/IMD_Units_Generic_areas_of_analysis_(AOAs)_-_IMD_BND_ALL_UNITS_AOA_nad_py_view/FeatureServer/0/query?where=UNITCODE+%3D+%27", park_code, "%27&objectIds=&time=&geometry=&geometryType=esriGeometryEnvelope&inSR=&spatialRel=esriSpatialRelIntersects&distance=&units=esriSRUnit_Meter&relationParam=&outFields=*&returnGeometry=true&maxAllowableOffset=&geometryPrecision=&outSR=4326&gdbVersion=&returnDistinctValues=false&returnIdsOnly=false&returnCountOnly=false&returnExtentOnly=false&orderByFields=&groupByFieldsForStatistics=&outStatistics=&returnZ=false&returnM=false&resultOffset=&resultRecordCount=&f=geojson") # save output as WGS84
+
+#paste(unitBoundaryURL)
+```
+
+
+
+```{r}
+#checking error code below
+imported_dat_FODO <- tryCatch(readOGR(dsn = unitBoundaryURL_FODO, dropNULLGeometries = FALSE), error=function(e) print("Error retrieving data")) # return error message if problems still arise with downloading from web services
+
+#shiny::req(class(imported_dat)=="SpatialPolygonsDataFrame")
+imported_dat_FODO <- sp::spTransform(imported_dat_FODO, CRS("+proj=longlat +datum=WGS84")) # convert to WGS84
+
+```
+
+
+# Plotting 
+
+
+
+```{r}
+plot(imported_dat_FODO)
+```
+
+```{r}
+#Putting points on shapefile without leaflet
+
+CUPN_Park <- CUPN_Plots %>%
+  dplyr::filter(Park_Code == "FODO") %>%
+  dplyr::select(Plot_Code, Latitude, Longitude) %>%
+  dplyr::mutate(Latitude = as.double(Latitude), 
+         Longitude = as.double(Longitude)) %>%
+  drop_na()
+
+#To visualize these points on a plot() object
+coordinates(CUPN_Park) <- ~Latitude+Longitude
+
+# Make sure the two files share the same CRS
+CUPN_Park@proj4string <- imported_dat_FODO@proj4string
+
+# visual check
+
+# plot(imported_dat_FODO, border = "grey", xlim = c(min(CUPN_Park$Longitude), max(CUPN_Plots$Longitude)))
+# points(x=CUPN_Park$Longitude, y=CUPN_Park$Latitude, pch = 20, col = "orange")
+# axis(1) # showing the axes helps to check whether the coordinates are what you expected
+# axis(2)
+
+#points_in_shape <- over(CUPN_Park, imported_dat)
+
+```
+
+```{r}
+CUPN_latlong <- CUPN_Plots %>%
+  dplyr::filter(Park_Code == "FODO") %>%
+  dplyr::select(Plot_Code, Latitude, Longitude) %>%
+  dplyr::mutate(Latitude = as.double(Latitude), 
+         Longitude = as.double(Longitude)) %>%
+  drop_na()
+
+CUPN_Tree_FODO
+
+CUPN_Trees <- full_join(CUPN_latlong, CUPN_Tree_FODO, by = "Plot_Code")
+
+CUPN_Trees <-CUPN_Trees %>%
+  dplyr::filter(grepl("DONE", Plot_Code)) %>%
+  drop_na()
+```
+
+
+```{r}
+# figuring out how to put pie charts on mapping data
+basemap_FODO = leaflet(data = CUPN_Trees) %>%
+  addTiles() %>%
+  addPolygons(data = imported_dat_FODO, color = ~ "black")
+
+#SET VIEW SETS THE MIDDLE POINT OF THE MAP
+#  setView(lng = mean(CUPN_Trees$Longitude), lat = mean(CUPN_Trees$Latitude), zoom = 15)
+
+basemap_FODO %>% 
+  addMinicharts(CUPN_Trees$Longitude, 
+                CUPN_Trees$Latitude, 
+    chartdata = CUPN_Trees$Basal_Area_ha, 
+    type = "polar-area",
+    width = (sqrt(CUPN_Trees$Basal_Area_ha) * 4),
+    fillColor = "#008000",
+  #  colorPalette = colors,
+    showLabels = F) %>%
+    fitBounds(min(CUPN_Trees$Longitude), min(CUPN_Trees$Latitude), max(CUPN_Trees$Longitude), max(CUPN_Trees$Latitude))
+
+```
+
+
+***CARL Park***
+
+
+```{r}
+#create a funciton that will input plot codes and call to arcgis repo for unitboundaries
+#or figure out whytf the download.file does not work on this computer
+
+# Get park unit boundary data ----
+
+park_code <- "CARL"
+  # KATE, ENTER 4-LETTER PARK CODE HERE
+  
+unitBoundaryURL_CARL <- paste0("https://services1.arcgis.com/fBc8EJBxQRMcHlei/ArcGIS/rest/services/IMD_Units_Generic_areas_of_analysis_(AOAs)_-_IMD_BND_ALL_UNITS_AOA_nad_py_view/FeatureServer/0/query?where=UNITCODE+%3D+%27", park_code, "%27&objectIds=&time=&geometry=&geometryType=esriGeometryEnvelope&inSR=&spatialRel=esriSpatialRelIntersects&distance=&units=esriSRUnit_Meter&relationParam=&outFields=*&returnGeometry=true&maxAllowableOffset=&geometryPrecision=&outSR=4326&gdbVersion=&returnDistinctValues=false&returnIdsOnly=false&returnCountOnly=false&returnExtentOnly=false&orderByFields=&groupByFieldsForStatistics=&outStatistics=&returnZ=false&returnM=false&resultOffset=&resultRecordCount=&f=geojson") # save output as WGS84
+
+#paste(unitBoundaryURL)
+```
+
+
+
+```{r}
+#checking error code below
+imported_dat_CARL <- tryCatch(readOGR(dsn = unitBoundaryURL_CARL, dropNULLGeometries = FALSE), error=function(e) print("Error retrieving data")) # return error message if problems still arise with downloading from web services
+
+#shiny::req(class(imported_dat)=="SpatialPolygonsDataFrame")
+imported_dat_CARL <- sp::spTransform(imported_dat_CARL, CRS("+proj=longlat +datum=WGS84")) # convert to WGS84
+
+```
+# Plotting 
+
+```{r}
+plot(imported_dat_CARL)
+```
+
+```{r}
+Table_T3_Native <- Table_T3 %>%
+  dplyr::select(Plot_Code, Native, `Non.Native`, Unknown) %>%
+  dplyr::filter(grepl("CARL", Plot_Code))
+```
+
+```{r}
+CUPN_CARL <- CUPN_Plots %>%
+  dplyr::filter(grepl("CARL", Plot_Code)) %>%
+  dplyr::select(-Network_Code)
+
+CUPN_CARL <- full_join(CUPN_CARL, Table_T3_Native, by = "Plot_Code")
+CUPN_CARL <- drop_na(CUPN_CARL)
+
+
+```
+
+```{r}
+basemap_CARL = leaflet(data = CUPN_CARL) %>%
+  addTiles() %>%
+  addPolygons(data = imported_dat_CARL, color = ~ "black")
+
+#SET VIEW SETS THE MIDDLE POINT OF THE MAP
+#  setView(lng = mean(CUPN_Trees$Longitude), lat = mean(CUPN_Trees$Latitude), zoom = 15)
+
+basemap_CARL %>% 
+  addMinicharts(CUPN_CARL$Longitude, 
+                CUPN_CARL$Latitude, 
+    chartdata = select(CUPN_CARL, Native, `Non.Native`, Unknown), 
+    width = 45, height = 45, 
+  #  colorPalette = colors,
+    showLabels = TRUE) %>%
+    fitBounds(min(CUPN_CARL$Longitude), min(CUPN_CARL$Latitude), max(CUPN_CARL$Longitude), max(CUPN_CARL$Latitude))
+
+```
+
+
+```{r}
+#ReadOGR to read in shapefiles 
+# #Usign individual shape files already downloaded to the computer - SECN and SFCN
+# 
+# FuncMapBounds <- function () {
+#   CUPNmap <- readOGR(here::here("shapefiles", "CUPN_shapefiles", "CUPN.shp"))
+#   CUPNmap <- spTransform(CUPNmap, CRS("+init=epsg:4326")) # make sure shapefiles are in same projection as google maps
+#   CUPNmap@data$id <- rownames(CUPNmap@data)
+#   CUPNmapbounds_df <- CUPNmap %>% broom::tidy() %>% # convert to data frame with boundary information
+#   left_join(CUPNmap@data[,c("SubUnitLab", "id")], by = "id")
+#   saveRDS(CUPNmapbounds_df, "shapefiles/CUPNmapbounds.RDS")
+# }
+
+```
+

@@ -1,0 +1,61 @@
+---
+title: "checkleafletaddminichart"
+output: html_document
+date: '2022-12-08'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyr)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library(readr)
+library(RColorBrewer)
+library(knitr)
+library(DT)
+library(gt)
+library(base)
+library(stringr)
+library(httr)
+library(rgdal) 
+library(sf) 
+library(sp) 
+library(rgeos)
+library(leaflet)
+library(leaflet.minicharts)
+library(magrittr)
+```
+
+```{r}
+setwd("C:/Users/kseeger/OneDrive - DOI/Desktop/GIT_RSTUDIO/SIP_NPS_CODE/Mapping")
+
+
+basemap = leaflet() %>% 
+  addTiles() %>% 
+  addProviderTiles(providers$OpenStreetMap.DE) %>%
+  setView(-98,38.5,zoom=4)
+
+basemap
+```
+
+```{r}
+oga <- read_csv("sales.csv")
+```
+```{r}
+colors = c("#FF0000", "#428EF4")
+
+basemap %>%
+  addMinicharts(
+    oga$longitude, oga$latitude,
+    chartdata = select(oga,sales_sensors,sales_pumps),
+    colorPalette = colors,
+    width = 45, height = 45
+  )
+
+```
+

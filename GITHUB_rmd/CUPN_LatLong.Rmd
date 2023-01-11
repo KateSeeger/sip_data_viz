@@ -1,0 +1,226 @@
+---
+title: "CUPN_LatLong"
+output: html_document
+date: '2022-12-06'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, warning = FALSE}
+library(tidyr)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(leaflet)
+library(knitr)
+library(lubridate)
+library(ggthemes)
+library(httr)
+library(rgdal) 
+library(sf) 
+library(sp) 
+library(rgeos)
+library(raster)
+library(data.table)
+
+```
+
+```{r}
+setwd("C:/Users/kseeger/OneDrive - DOI/Desktop/GIT_RSTUDIO/SIP_NPS_CODE/Mapping/CUPN")
+```
+
+```{r}
+CUPN_Plots <- read_csv("CUPN_PlotEvents_LatLong.csv") 
+
+CUPN_Plots <- CUPN_Plots %>%
+  dplyr::select(Plot_Code, Latitude, Longitude)
+```
+
+```{r}
+CUPN_Plots <- read_csv("CUPN_PlotEvents_LatLong.csv") 
+
+CUPN_Plots_Select <- CUPN_Plots %>%
+    dplyr::select(Plot_Code, Start_Date, Latitude, Longitude)
+
+CUPN_Plots_Select$Start_Date <- dmy(CUPN_Plots_Select$Start_Date)
+
+CUPN_Plots_Select <- CUPN_Plots_Select %>%
+  group_by(Plot_Code) %>%
+  slice(which.max(Start_Date))
+
+
+```
+
+
+```{r}
+CUPN_Dup_Plots <- CUPN_Plots_Select %>%
+  group_by(Plot_Code) %>%
+  summarize(obs = n())
+
+CUPN_Dup_Plots <- CUPN_Dup_Plots %>%
+  filter(obs > 1)
+
+dup <- list(CUPN_Dup_Plots$Plot_Code)
+
+CUPN_Plots_Select %>%
+  filter(Plot_Code %in% dup)
+  
+```
+
+
+#Checking UTM Conversion to LAT and Long for CUPN 
+
+```{r}
+CUPN_UTM <- read_csv("CUPN_UTM.csv")
+
+drop_na(CUPN_UTM)
+
+#Separating by position instead of string, making zone an integer
+
+UTM_to_LatLong <- CUPN_UTM %>%
+  separate(UTM_Zone, c("Zone", "Dir"), sep = 2) %>%
+  mutate(Zone = as.integer(Zone)) %>%
+  dplyr::select(UTMX, 
+                UTMY,
+                Zone)
+
+UTM_to_LatLong <- drop_na(UTM_to_LatLong)
+
+#Creates a list
+cupn_split = split(UTM_to_LatLong, UTM_to_LatLong$Zone)
+
+#creating dataframe by zone number
+cupn_16_df <- as.data.frame(cupn_split$`16`)
+cupn_16 <- cupn_16_df %>%
+  dplyr::select(-Zone)
+
+#creating dataframe by zone
+cupn_17 <- as.data.frame(cupn_split$`17`) 
+cupn_17 <- cupn_17 %>%
+  dplyr::select(-Zone)
+
+#str(cupn_16) useful check 
+
+coordinates(cupn_16) <- ~UTMX + UTMY
+#str(cupn_16)
+proj4string(cupn_16) <- CRS("+init=epsg:26916")
+
+#head(cupn_16)
+```
+
+
+```{r}
+#transforms it to lat/long - EPSG:4326
+cupn16_latlong <- spTransform(cupn_16, CRS("+init=epsg:4326"))
+
+#dataframe from coordinates
+cupn16_latlong <- as.data.frame(coordinates(cupn16_latlong))
+
+cupn16_latlong <- cupn16_latlong %>%
+  dplyr::rename(Longitude = UTMX, 
+                Latitude = UTMY)
+
+cupn_16_plots <- cbind(cupn_16_df, cupn16_latlong)
+```
+
+# CUPN 17
+```{r}
+
+cupn_17_df <- as.data.frame(cupn_split$`17`) 
+cupn_17 <- cupn_17_df %>%
+  dplyr::select(-Zone)
+
+#str(cupn_16) useful check 
+
+coordinates(cupn_17) <- ~UTMX + UTMY
+#str(cupn_16)
+proj4string(cupn_17) <- CRS("+init=epsg:26917")
+
+#head(cupn_16)
+```
+
+```{r}
+cupn17_latlong <- spTransform(cupn_17, CRS("+init=epsg:4326"))
+
+cupn17_latlong <- as.data.frame(coordinates(cupn17_latlong))
+
+cupn17_latlong <- cupn17_latlong %>%
+  dplyr::rename(Longitude = UTMX, 
+                Latitude = UTMY)
+
+cupn_17_plots <- cbind(cupn_17_df, cupn17_latlong)
+
+cupn_latlong <- rbind(cupn_16_plots, cupn_17_plots)
+```
+
+```{r}
+#From UTM dataset 
+
+UTM_to_LatLong <- CUPN_UTM %>%
+  separate(UTM_Zone, c("Zone", "Dir"), sep = 2) %>%
+  mutate(Zone = as.integer(Zone)) %>%
+  dplyr::select(Plot_Code, UTMX, UTMY, Zone)
+
+#joining old dataset with utms and plots with new lat and long coordinates
+cupcup <-full_join(UTM_to_LatLong, cupn_latlong, by = c("UTMX", "UTMY"))
+
+cupcup %>%
+  dplyr::select(Plot_Code, Latitude, Longitude)
+
+CUPN_Plots %>%
+  dplyr::select(Plot_Code, Latitude, Longitude)
+```
+
+```{r}
+#Checking how different Long and Lat 
+plotplot <- full_join(cupcup, CUPN_Plots, by = "Plot_Code")
+
+plotplot <- plotplot %>%
+  dplyr::select(Plot_Code, Longitude.x, Longitude.y, Latitude.x, Latitude.y) %>%
+  dplyr::mutate(Londiff = Longitude.x - Longitude.y, 
+                Latdiff = Latitude.x - Latitude.y) %>%
+  dplyr::mutate(WOWLong = case_when(Londiff > 0.0001 ~ "WOW", 
+                                    Londiff < 0.0001 ~ "pewpew")) %>%
+  dplyr::mutate(WOWLat = case_when(Latdiff >0.0001 ~ "WOW", 
+                                   Latdiff < 0.0001 ~ "pewpew"))
+
+plotplot%>%
+  filter(WOWLong == "WOW" | WOWLat == "WOW")
+```
+
+```{r}
+joinplots <- inner_join(CUPN_Plots, cupcup, by = "Plot_Code")
+
+plots <- unique(joinplots$Plot_Code)
+ 
+cupcup <- cupcup %>%
+  filter(Plot_Code %in% plots)
+
+CUPN_Plots %>%
+  filter(Plot_Code %in% plots) 
+
+cupcup<- drop_na(cupcup)
+
+my_sf <- st_as_sf(cupcup, coords = c('Longitude', 'Latitude'))
+
+#Plot it:
+CUPN_Plots <- drop_na(CUPN_Plots) 
+
+my_CUPN <- st_as_sf(CUPN_Plots, coords = c('Longitude', 'Latitude'))
+
+#plotting points and it's the same woot woot
+
+ggplot(my_sf) + 
+  geom_sf(aes())
+
+ggplot(my_CUPN) + 
+  geom_sf(aes())
+```
+
+
+#NAD83 - EPSG:4269
+
+

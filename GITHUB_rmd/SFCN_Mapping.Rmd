@@ -1,0 +1,329 @@
+---
+title: "SFCN_Mapping"
+output: html_document
+date: '2022-12-05'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, warning = FALSE}
+library(tidyr)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library(readr)
+library(RColorBrewer)
+library(knitr)
+library(DT)
+library(gt)
+library(base)
+library(stringr)
+library(httr)
+library(rgdal) 
+library(sf) 
+library(sp) 
+library(rgeos)
+library(leaflet)
+library(leaflet.minicharts)
+library(magrittr)
+library(ggthemes)
+library(gridExtra)
+
+```
+
+```{r}
+setwd("C:/Users/kseeger/OneDrive - DOI/Desktop/GIT_RSTUDIO/SIP_NPS_CODE/Mapping/SFCN")
+
+plot_locations <- read_csv("SFCNPlots_wLatLon_20221206.csv")
+# - Plot locations with latitude and longitude
+
+biscman_rich <- read_csv("SFCN_WoodyRich.csv")
+# - BISCMAN live and dead DBH, and Densities, and proportion of species 
+# Table 1
+
+biscchh_rich <- read_csv("Book1.csv")
+# - number of trees live and dead and their plot min & average DBH and density
+#Table 2
+
+#-----
+#Table3 Split up
+
+biscchh_species_total <- read_csv("SFCN_sp_total.csv")
+# - Total count of unique species that are live and dead
+
+biscchh_num_live_dead <- read_csv("SFCN_num_live_dead.csv")
+# - BISCCHH count live and dead counts per species
+
+biscchh_total_sp_rich <- read_csv("SFCN_Tot_sp_rich.csv")
+# - total count of species per plot
+
+```
+# Manipulating original data frames
+```{r}
+biscchh_num_live_dead <- biscchh_num_live_dead %>% 
+  replace(is.na(.), 0)
+ 
+biscchh_num_live_dead
+
+bisc_plot_location <- plot_locations %>%
+  filter(stringr::str_starts(Plot_Code, "BISC"))
+
+bisc_plot_location
+```
+
+#Downloading BISCMAN .shp shapefiles
+```{r}
+#useful website on how to create a CRS and sf/st/rgdal packages https://inbo.github.io/tutorials/tutorials/spatial_crs_coding/#:~:text=How%20to%20specify%20a%20CRS%20in%20R%3F%201,that%20might%20still%20work%2C%20their%20usage%20is%20discouraged%29.
+
+# BISCMAN PLOTS
+biscman_boundary <- st_read('./SFCN_Sapling_Frame_WGS8/Shapefiles_BISC_Forest_MangroveForest_SamplingFrame_GCS_WGS84.shp')
+
+st_crs(biscman_boundary)
+
+biscman_plot_locations <- bisc_plot_location %>%
+  filter(grepl("BISCMAN", Plot_Code)) %>%
+  select(Plot_Code, Latitude, Longitude)
+```
+
+#Downloading/Creating BISCCHH .shp shapefiles
+```{r}
+# BISCCHH PLOTS
+biscchh_boundary <- st_read('./SFCN_Sapling_Frame_WGS8/Shapefiles_BISC_Forest_HardwoodHammocks_SamplingFrame_GCS_WGS84.shp')
+
+st_crs(biscchh_boundary)
+
+BISCCHH_plot_locations<- bisc_plot_location %>%
+  filter(grepl("BISCCHH", Plot_Code)) %>%
+  select(Plot_Code, Latitude, Longitude)
+
+```
+#Getting boundary for SFCN BISC Park
+```{r}
+park_code <- "BISC"
+  # KATE, ENTER 4-LETTER PARK CODE HERE
+  
+unitBoundaryURL <- paste0("https://services1.arcgis.com/fBc8EJBxQRMcHlei/ArcGIS/rest/services/IMD_Units_Generic_areas_of_analysis_(AOAs)_-_IMD_BND_ALL_UNITS_AOA_nad_py_view/FeatureServer/0/query?where=UNITCODE+%3D+%27", park_code, "%27&objectIds=&time=&geometry=&geometryType=esriGeometryEnvelope&inSR=&spatialRel=esriSpatialRelIntersects&distance=&units=esriSRUnit_Meter&relationParam=&outFields=*&returnGeometry=true&maxAllowableOffset=&geometryPrecision=&outSR=4326&gdbVersion=&returnDistinctValues=false&returnIdsOnly=false&returnCountOnly=false&returnExtentOnly=false&orderByFields=&groupByFieldsForStatistics=&outStatistics=&returnZ=false&returnM=false&resultOffset=&resultRecordCount=&f=geojson") # save output as WGS84
+
+paste(unitBoundaryURL)
+```
+#Creating geojson file 
+```{r}
+tempUnitOutput <- "tempunit.geojson"
+
+#checking error code below
+bisc_plot<- tryCatch(readOGR(dsn = tempUnitOutput, dropNULLGeometries = FALSE), error=function(e) print("Error retrieving data")) # return error message if problems still arise with downloading from web services
+
+#shiny::req(class(imported_dat)=="SpatialPolygonsDataFrame")
+bisc_plot<- spTransform(bisc_plot, CRS("+proj=longlat +datum=WGS84")) # convert to WGS84
+
+bisc_plot<- readOGR(dsn = tempUnitOutput, dropNULLGeometries = FALSE) 
+
+#plot(BISC_PLOT)
+```
+
+#Compiling and mutating data for the final maps
+```{r}
+#PLOTCODE_RICH = lat and long with min, max, live , dead, and dbh data. 
+#PLOTCODE_NUM_Trees are datasets ready to be used with leaflet and include lat, long, and number of live and dead trees
+```
+
+#BISCMAN Live/Dead Prop
+```{r}
+# Creating biscman_rich which appends lat and long to data set
+biscman_rich <- biscman_rich %>%
+  rename(Plot_Code = Site)
+
+biscman_rich <- merge(x = biscman_rich, y = biscman_plot_locations[ , c("Plot_Code", "Latitude", "Longitude")], by ='Plot_Code', all.x=TRUE)
+
+biscman_num_trees <- biscman_rich %>%
+  dplyr::select(Plot_Code, Status, Num_Trees, Latitude, Longitude) %>%
+  dplyr::mutate(Latitude = as.double(Latitude), 
+                Longitude = as.double(Longitude))
+
+#Pivoting table
+biscman_num_trees <- biscman_num_trees %>%
+  pivot_wider(names_from = Status,
+              values_from = Num_Trees)
+```
+
+#BISCCHH Live/Dead Trees
+```{r}
+#BISCCHH NUM TREES 
+biscchh_num_trees <- biscchh_rich %>%
+  rename(Plot_Code = Site) %>%
+  dplyr::select(Plot_Code, status, Num_Trees)
+
+BISCCHH_plot_locations <- plot_locations %>%
+  dplyr::filter(stringr::str_starts(Plot_Code, "BISCCHH")) %>%
+  dplyr::select(Plot_Code, Latitude, Longitude)
+
+
+#Merging data with lat and long to plot it
+biscchh_num_trees <- left_join(biscchh_num_trees, BISCCHH_plot_locations, by = "Plot_Code")
+
+
+biscchh_num_trees <- biscchh_num_trees %>%
+  pivot_wider(names_from = status, 
+              values_from = Num_Trees 
+              )
+
+biscman_num_trees
+biscchh_num_trees
+
+```
+
+#creating official leaflet map showing the two forest communities in BISC and showing proportional data from both BISCCHH and BISCMAN
+```{r}
+#Brown and green colors
+colors = c("#008000", "#8d5542")
+
+BISC_MAP = leaflet(data = bisc_plot_location) %>%
+  addTiles() %>%
+#  addPolygons(data = BISC_PLOT, color = ~ "black", weight = 1.5, fillOpacity = 0) %>%
+#  setView(lng = mean(biscman_num_trees$Longitude), lat = mean(biscman_num_trees$Latitude), zoom = 11.35)%>%
+  addPolygons(data = biscchh_boundary, color = ~"black", weight = 1, fillColor = ~"yellow", fillOpacity = 0.6) %>%
+  addPolygons(data = biscman_boundary, color = ~ "black", weight = 1, fillColor = ~"red", fillOpacity = 0.6)
+
+BISC_MAP %>%
+  addMinicharts(biscchh_num_trees$Longitude, 
+                biscchh_num_trees$Latitude, 
+                chartdata = dplyr::select(biscchh_num_trees, Live, Dead), 
+                colorPalette = colors, 
+                type = "pie", 
+                width = sqrt(biscchh_num_trees$Live + biscchh_num_trees$Dead) * 3) %>%
+  addMinicharts(biscman_num_trees$Longitude, 
+                biscman_num_trees$Latitude, 
+                chartdata = dplyr::select(biscman_num_trees, Live, Dead), 
+                colorPalette = colors, 
+                type = "pie", 
+                width = sqrt(biscman_num_trees$Live + biscman_num_trees$Dead) * 3) %>%
+  addLabelOnlyMarkers(biscchh_num_trees$Longitude, 
+                biscchh_num_trees$Latitude, label =  biscchh_num_trees$Plot_Code,
+                      labelOptions = labelOptions(noHide = T, direction = 'top', textOnly = T, style=list('color'="#171717", 'fontSize'="10px"))) %>%
+   addLabelOnlyMarkers(biscman_num_trees$Longitude, 
+                biscman_num_trees$Latitude, label =  biscman_num_trees$Plot_Code,
+                      labelOptions = labelOptions(noHide = T, direction = 'top', textOnly = T, style=list('color'="#171717", 'fontSize'="10px"))) %>%
+    fitBounds(min(biscman_num_trees $Longitude), 
+            min(biscman_num_trees $Latitude), 
+            max(biscchh_num_trees $Longitude),
+            max(biscman_num_trees $Latitude))
+
+  
+```
+
+```{r}
+#Brown and green colors
+colors = c("#008000", "#8d5542")
+
+BISC_MAP = leaflet(data = bisc_plot_location) %>%
+  addTiles() %>%
+  setView(lng = mean(biscman_num_trees$Longitude), lat = mean(biscman_num_trees$Latitude), zoom = 11)%>%
+  addPolygons(data = bisc_plot, color = ~ "black", weight = 1.5, fillOpacity = 0) %>%
+  addPolygons(data = biscchh_boundary, color = ~"black", weight = 1, fillColor = ~"yellow", fillOpacity = 0.6) %>%
+  addPolygons(data = biscman_boundary, color = ~ "black", weight = 1, fillColor = ~"red", fillOpacity = 0.6)
+
+BISC_MAP %>%
+  addMinicharts(biscchh_num_trees$Longitude, 
+                biscchh_num_trees$Latitude, 
+                chartdata = dplyr::select(biscchh_num_trees, Live, Dead), 
+                colorPalette = colors, 
+                type = "pie", 
+                width = sqrt(biscchh_num_trees$Live + biscchh_num_trees$Dead) * 3) %>%
+  addMinicharts(biscman_num_trees$Longitude, 
+                biscman_num_trees$Latitude, 
+                chartdata = dplyr::select(biscman_num_trees, Live, Dead), 
+                colorPalette = colors, 
+                type = "pie", 
+                width = sqrt(biscman_num_trees$Live + biscman_num_trees$Dead) * 3) %>%
+  addLabelOnlyMarkers(biscchh_num_trees$Longitude, 
+                biscchh_num_trees$Latitude, label =  biscchh_num_trees$Plot_Code,
+                      labelOptions = labelOptions(noHide = T, direction = 'top', textOnly = T, style=list('color'="#171717", 'fontSize'="10px"))) %>%
+   addLabelOnlyMarkers(biscman_num_trees$Longitude, 
+                biscman_num_trees$Latitude, label =  biscman_num_trees$Plot_Code,
+                      labelOptions = labelOptions(noHide = T, direction = 'top', textOnly = T, style=list('color'="#171717", 'fontSize'="10px")))
+
+  
+```
+
+#BISCMAN
+```{r}
+#Brown and green colors
+colors = c("#008000", "#8d5542")
+
+BISC_MAP = leaflet(data = bisc_plot_location) %>%
+  addProviderTiles("Esri.WorldImagery", options = providerTileOptions(noWrap = TRUE), group="Satellite") %>%  
+  setView(lng = mean(biscman_num_trees$Longitude), lat = mean(biscman_num_trees$Latitude), zoom = 11)%>%
+ # addPolygons(data = BISC_PLOT, color = ~ "black", weight = 1.5, fillOpacity = 0) %>%
+  #addPolygons(data = biscchh_boundary, color = ~"black", weight = 1, fillColor = ~"yellow", fillOpacity = 0.6) %>%
+  addPolygons(data = biscman_boundary, color = ~ "black", weight = 1, fillColor = ~"red", fillOpacity = 0.6)
+
+BISC_MAP %>%
+  addMinicharts(biscman_num_trees$Longitude, 
+                biscman_num_trees$Latitude, 
+                chartdata = dplyr::select(biscman_num_trees, Live, Dead), 
+                colorPalette = colors, 
+                type = "pie", 
+                width = sqrt(biscman_num_trees$Live + biscman_num_trees$Dead) * 3) %>%
+   addLabelOnlyMarkers(biscman_num_trees$Longitude, 
+                biscman_num_trees$Latitude, label =  biscman_num_trees$Plot_Code,
+                      labelOptions = labelOptions(noHide = T, direction = 'top', textOnly = T, style=list('color'="#ffffff", 'fontSize'="10px")))
+```
+
+#BISCCHH
+```{r}
+#Brown and green colors
+colors = c("#008000", "#8d5542")
+
+BISC_MAP = leaflet(data = bisc_plot_location) %>%
+  addProviderTiles(providers$Esri.WorldImagery) %>%
+  setView(lng = mean(biscchh_num_trees$Longitude), lat = mean(biscchh_num_trees$Latitude), zoom = 11)%>%
+#  addPolygons(data = BISC_PLOT, color = ~ "black", weight = 1.5, fillOpacity = 0) %>%
+  addPolygons(data = biscchh_boundary, color = ~"black", weight = 1, fillColor = ~"yellow", fillOpacity = 0.6) #%>%
+ # addPolygons(data = biscman_boundary, color = ~ "black", weight = 1, fillColor = ~"red", fillOpacity = 0.6)
+
+BISC_MAP %>%
+  addMinicharts(biscchh_num_trees$Longitude, 
+                biscchh_num_trees$Latitude, 
+                chartdata = dplyr::select(biscchh_num_trees, Live, Dead), 
+                colorPalette = colors, 
+                type = "pie", 
+                width = sqrt(biscchh_num_trees$Live + biscchh_num_trees$Dead) * 3) %>%
+  addLabelOnlyMarkers(biscchh_num_trees$Longitude, 
+                biscchh_num_trees$Latitude, label =  biscchh_num_trees$Plot_Code,
+                      labelOptions = labelOptions(noHide = T, direction = 'top', textOnly = T, style=list('color'="#ffffff", 'fontSize'="10px", "text-shadow" = "#ffffff'"
+          )
+        )
+      )
+```
+
+#BISCMAN
+```{r}
+six <- c("#56B4E9",  "#0072B2", "#E69F00", "#D55E00", '#FFAABB', '#882255')
+
+biscman_num_sp <- biscman_rich %>%
+  dplyr::select(Plot_Code, Status, Latitude, Longitude, `Avicennia germinans`, `Laguncularia racemosa`, `Rhizophora mangle`)
+
+biscman_num_sp <- biscman_num_sp %>%
+  pivot_wider(names_from = Status, 
+              values_from= c(`Avicennia germinans`, `Laguncularia racemosa`, `Rhizophora mangle`))
+
+BISC_MAP = leaflet(data = bisc_plot_location) %>%
+  addProviderTiles("Esri.WorldImagery", options = providerTileOptions(noWrap = TRUE), group="Satellite") %>%  
+  setView(lng = mean(biscman_num_sp$Longitude), lat = mean(biscman_num_sp$Latitude), zoom = 11)%>%
+  addPolygons(data = biscman_boundary, color = ~ "black", weight = 1, fillColor = ~"red", fillOpacity = 0.6)
+
+BISC_MAP %>%
+  addMinicharts(biscman_num_sp$Longitude, 
+                biscman_num_sp$Latitude, 
+                chartdata = dplyr::select(biscman_num_sp, `Avicennia germinans_Live`, `Avicennia germinans_Dead`, `Laguncularia racemosa_Live`, `Laguncularia racemosa_Dead`, `Rhizophora mangle_Live`, `Rhizophora mangle_Dead`), 
+                colorPalette= six,
+                height = 45, width = 60)%>%
+   addLabelOnlyMarkers(biscman_num_sp$Longitude, 
+                biscman_num_sp$Latitude, label =  biscman_num_sp$Plot_Code,
+                      labelOptions = labelOptions(noHide = T, direction = 'top', textOnly = T, style=list('color'="#ffffff", 'fontSize'="10px")))
+
+```
+
